@@ -5,9 +5,12 @@ export function generateFallbackText(
   username: string,
   availableIntents: string[]
 ) {
-  return `Hey ${username},\nThanks for contacting us. Unfortunately we couldn't resolve a possible for the your message. Try sending any of the below keys\n${availableIntents.join(
-    ", "
-  )}`
+  let intentList = ""
+  availableIntents.forEach(
+    (intent, index) =>
+      (intentList = intentList.concat(`\n${index + 1}. ${intent}`))
+  )
+  return `Hey ${username},\nThanks for contacting us. We couldn't land you on exactly what you are looking for. Try sending any of the below keys.${intentList}`
 }
 
 export function populateVariableValue(

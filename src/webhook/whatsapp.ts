@@ -176,55 +176,24 @@ router.post("/", async (req, res) => {
         return
       }
 
-      if (lastStep.nextId) {
-        let currentStep = steps.find((step) => step.id === lastStep.nextId)
-        while (currentStep) {
-          await whatsappBotFlowStepHandler(
-            currentStep,
-            eventData,
-            storageVariables
-          )
-          logger.info(
-            `Executed step:${currentStep.type} for user:${eventData.userPhoneNumber} from account:${eventData.accountId}`
-          )
-          if (currentStep.isBlocking) {
-            await prisma.flowSession.update({
-              where: {
-                id: session.id,
-              },
-              data: {
-                variables: storageVariables,
-                lastStepId: currentStep.id,
-                isActive: true,
-              },
-            })
-            logger.info(
-              `Executed isBlocking, session:${session.id} updated for user:${eventData.userPhoneNumber} from account:${eventData.accountId}`
-            )
-            break
-          }
-          if (!currentStep.nextId) {
-            await prisma.flowSession.update({
-              where: {
-                id: session.id,
-              },
-              data: {
-                variables: storageVariables,
-                lastStepId: currentStep.id,
-                isActive: false,
-              },
-            })
-            logger.info(
-              `No nextId, session:${session.id} marked ended for user:${eventData.userPhoneNumber}`
-            )
-            break
-          }
+      let nextStepId = null
 
-          const nextStep = steps.find((step) => step.id === currentStep.nextId)
-          currentStep = nextStep
-        }
-        lastStep = currentStep
+      if (
+        lastStep.type === "ask_question" &&
+        lastStep.messageConfig.messageType === "interactive"
+      ) {
+        const { interactionType, options } = lastStep.messageConfig
+        nextStepId = options.find(
+          (option) =>
+            option.id ===
+            eventData.message.interactive[
+              interactionType === "list" ? "list_reply" : "button_reply"
+            ].id
+        ).nextId
       } else {
+        nextStepId = lastStep.nextId
+      }
+      if (!nextStepId) {
         await prisma.flowSession.update({
           where: {
             id: session.id,
@@ -237,7 +206,56 @@ router.post("/", async (req, res) => {
         logger.info(
           `Session:${session.id} for:${eventData.userPhoneNumber} marked ended`
         )
+        return
       }
+
+      let currentStep = steps.find((step) => step.id === nextStepId)
+      while (currentStep) {
+        await whatsappBotFlowStepHandler(
+          currentStep,
+          eventData,
+          storageVariables
+        )
+        logger.info(
+          `Executed step:${currentStep.type} for user:${eventData.userPhoneNumber} from account:${eventData.accountId}`
+        )
+        if (currentStep.isBlocking) {
+          await prisma.flowSession.update({
+            where: {
+              id: session.id,
+            },
+            data: {
+              variables: storageVariables,
+              lastStepId: currentStep.id,
+              isActive: true,
+            },
+          })
+          logger.info(
+            `Executed isBlocking, session:${session.id} updated for user:${eventData.userPhoneNumber} from account:${eventData.accountId}`
+          )
+          break
+        }
+        if (!currentStep.nextId) {
+          await prisma.flowSession.update({
+            where: {
+              id: session.id,
+            },
+            data: {
+              variables: storageVariables,
+              lastStepId: currentStep.id,
+              isActive: false,
+            },
+          })
+          logger.info(
+            `No nextId, session:${session.id} marked ended for user:${eventData.userPhoneNumber}`
+          )
+          break
+        }
+
+        const nextStep = steps.find((step) => step.id === currentStep.nextId)
+        currentStep = nextStep
+      }
+      lastStep = currentStep
     }
   } catch (error) {
     logger.error(`Whatsapp event handler error: ${error}`)

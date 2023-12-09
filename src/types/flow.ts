@@ -42,7 +42,12 @@ export type ListInteraction = {
   text: string
   footerText?: string
   buttonText?: string
-  options: { id: string; title: string; description: string }[]
+  options: {
+    id: string
+    title: string
+    description: string
+    nextId?: string
+  }[]
 }
 
 export type ValidationConfig = {

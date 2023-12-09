@@ -37,7 +37,11 @@ export async function sendWhatsappMessage(
           button: "View options",
           sections: [
             {
-              rows: config.options,
+              rows: config.options.map((option) => ({
+                id: option.id,
+                title: option.title,
+                description: option.description,
+              })),
             },
           ],
         },

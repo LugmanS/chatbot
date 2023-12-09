@@ -2,6 +2,7 @@ import axios from "axios"
 import { Webhook } from "../types/whatsapp/webhook.js"
 import { SendMessageConfig, WhatsappFlowStep } from "../types/flow.js"
 import { populateVariableValue } from "../utils/helper.js"
+import logger from "../logger.js"
 
 export async function sendWhatsappMessage(
   phoneNumberId: string,
@@ -91,6 +92,9 @@ export async function validateAndUpdateVariables(
       step.messageConfig,
       {}
     )
+    logger.info(
+      `Message type missmatch for: ${eventData.userPhoneNumber}, resending lastStep message`
+    )
     return false
   }
   const { messageConfig, validations } = step
@@ -111,6 +115,9 @@ export async function validateAndUpdateVariables(
             text: step.invalidInputErrorText ?? step.messageConfig.text,
           },
           storageVariables
+        )
+        logger.info(
+          `Invalid input for type text for stepId: ${step.id} from: ${eventData.userPhoneNumber}, sent error message`
         )
         return false
       }

@@ -1,6 +1,6 @@
 import { Router } from "express"
-import { generateFallbackText } from "../utils/helper.js"
 import prisma from "../prisma.js"
+import { generateFallbackText } from "../utils/helper.js"
 import { Webhook } from "../types/whatsapp/webhook.js"
 import { FlowSteps } from "../types/flow.js"
 import {
@@ -9,6 +9,7 @@ import {
   whatsappBotFlowStepHandler,
   whatsappWebhookPayloadParser,
 } from "../lib/whatsapp.js"
+import logger from "../logger.js"
 const router = Router()
 
 //Verification endpoint
@@ -25,12 +26,14 @@ router.get("/", (req, res) => {
 router.post("/", async (req, res) => {
   const body: Webhook = req.body
   res.sendStatus(200) //Acknowledge as event received
-
   if (!body.entry[0].changes[0].value.messages) {
     return
   }
 
   const eventData = whatsappWebhookPayloadParser(req.body)
+  logger.info(
+    `Message event of type:${eventData.message.type} received from user:${eventData.userPhoneNumber} for account:${eventData.accountId}`
+  )
   try {
     const session = await prisma.flowSession.findFirst({
       where: {
@@ -40,6 +43,9 @@ router.post("/", async (req, res) => {
     })
 
     if (!session) {
+      logger.info(
+        `No active session found for user:${eventData.userPhoneNumber} of accountId:${eventData.accountId}`
+      )
       const bot = await prisma.bot.findFirst({
         where: {
           whatsappAccountId: eventData.accountId,
@@ -66,6 +72,9 @@ router.post("/", async (req, res) => {
           },
           {}
         )
+        logger.info(
+          `Received message type other than text without session, fallback message sent to user:${eventData.userPhoneNumber} from account:${eventData.accountId}`
+        )
         return
       }
 
@@ -83,6 +92,9 @@ router.post("/", async (req, res) => {
             text: generateFallbackText(eventData.userProfileName, flowIntents),
           },
           {}
+        )
+        logger.info(
+          `No intent matched, fallback message sent to user:${eventData.userPhoneNumber} from account:${eventData.accountId}`
         )
         return
       }
@@ -103,11 +115,13 @@ router.post("/", async (req, res) => {
 
       let currentStep = steps[0]
       while (currentStep) {
-        console.log("Processing no session steps:", currentStep.type)
         await whatsappBotFlowStepHandler(
           currentStep,
           eventData,
           storageVariables
+        )
+        logger.info(
+          `Executed step:${currentStep.type} for user:${eventData.userPhoneNumber} from account:${eventData.accountId}`
         )
         if (currentStep.isBlocking || !currentStep.nextId) {
           await prisma.flowSession.create({
@@ -124,6 +138,9 @@ router.post("/", async (req, res) => {
         const nextStep = steps.find((step) => step.id === currentStep.nextId)
         currentStep = nextStep
       }
+      logger.info(
+        `Session created for user:${eventData.userPhoneNumber} with flowId:${flow.id} from account:${eventData.accountId}`
+      )
     }
     if (session) {
       const flow = await prisma.flow.findUnique({
@@ -131,6 +148,9 @@ router.post("/", async (req, res) => {
           id: session.flowId,
         },
       })
+      logger.info(
+        `Session:${session.id} found for:${eventData.userPhoneNumber} from account:${eventData.accountId}`
+      )
       const steps = flow.steps as FlowSteps
       const storageVariables = JSON.parse(JSON.stringify(session.variables))
       let lastStep = steps.find((step) => step.id === session.lastStepId)
@@ -142,7 +162,7 @@ router.post("/", async (req, res) => {
         storageVariables
       )
       if (lastStep.type === "ask_question" && !isValidResponse) {
-        return await prisma.flowSession.update({
+        await prisma.flowSession.update({
           where: {
             id: session.id,
           },
@@ -150,18 +170,24 @@ router.post("/", async (req, res) => {
             lastStepAttempts: (session.lastStepAttempts += 1),
           },
         })
+        logger.info(
+          `Validation failed, updated attempts of sessionId:${session.id} for user:${eventData.userPhoneNumber} from account:${eventData.accountId}`
+        )
+        return
       }
 
       if (lastStep.nextId) {
         let currentStep = steps.find((step) => step.id === lastStep.nextId)
         while (currentStep) {
-          console.log("Processing step:", currentStep.type)
           await whatsappBotFlowStepHandler(
             currentStep,
             eventData,
             storageVariables
           )
-          if (currentStep.isBlocking || !currentStep.nextId) {
+          logger.info(
+            `Executed step:${currentStep.type} for user:${eventData.userPhoneNumber} from account:${eventData.accountId}`
+          )
+          if (currentStep.isBlocking) {
             await prisma.flowSession.update({
               where: {
                 id: session.id,
@@ -169,11 +195,31 @@ router.post("/", async (req, res) => {
               data: {
                 variables: storageVariables,
                 lastStepId: currentStep.id,
-                isActive: currentStep.nextId ? true : false,
+                isActive: true,
               },
             })
+            logger.info(
+              `Executed isBlocking, session:${session.id} updated for user:${eventData.userPhoneNumber} from account:${eventData.accountId}`
+            )
             break
           }
+          if (!currentStep.nextId) {
+            await prisma.flowSession.update({
+              where: {
+                id: session.id,
+              },
+              data: {
+                variables: storageVariables,
+                lastStepId: currentStep.id,
+                isActive: false,
+              },
+            })
+            logger.info(
+              `No nextId, session:${session.id} marked ended for user:${eventData.userPhoneNumber}`
+            )
+            break
+          }
+
           const nextStep = steps.find((step) => step.id === currentStep.nextId)
           currentStep = nextStep
         }
@@ -188,10 +234,13 @@ router.post("/", async (req, res) => {
             isActive: false,
           },
         })
+        logger.info(
+          `Session:${session.id} for:${eventData.userPhoneNumber} marked ended`
+        )
       }
     }
   } catch (error) {
-    console.log("Error:", error)
+    logger.error(`Whatsapp event handler error: ${error}`)
   }
 })
 

@@ -3,48 +3,53 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url  	    = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider     = "mysql"
+  url          = env("DATABASE_URL")
+  relationMode = "prisma"
 }
 
-model Bot{
-  id String @default(uuid()) @id
-  name String
-  accountId String
-  whatsappAccountId String
-  sessionTTL Int
+model Bot {
+  id                    String   @id @default(uuid())
+  name                  String
+  accountId             String
+  whatsappAccountId     String
+  sessionTTL            Int
   sessionTimeoutMessage String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @default(now())
-  isPublished Boolean @default(false)
-  flows Flow[]
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @default(now())
+  isPublished           Boolean  @default(false)
+  flows                 Flow[]
+
   @@map("bots")
 }
 
-model Flow{
-  id String @default(uuid()) @id
-  name String
-  intent String
-  steps Json
-  createdAt DateTime @default(now())
-  updatedAt DateTime @default(now())
-  botId String 
-  bot Bot @relation(fields: [botId], references: [id])
-  sessions FlowSession[]
+model Flow {
+  id        String        @id @default(uuid())
+  name      String
+  intent    String
+  steps     Json
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @default(now())
+  botId     String
+  bot       Bot           @relation(fields: [botId], references: [id])
+  sessions  FlowSession[]
+
+  @@index([botId])
   @@map("bot_flows")
 }
 
-model FlowSession{
-  id String @default(uuid()) @id
-  flowId String
-  flow Flow @relation(fields: [flowId], references: [id])
-  userPhoneNumber String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @default(now())
-  isActive Boolean @default(true)
-  lastStepId String
-  variables Json @default("{}")
-  lastStepAttempts Int @default(0)
+model FlowSession {
+  id               String   @id @default(uuid())
+  flowId           String
+  flow             Flow     @relation(fields: [flowId], references: [id])
+  userPhoneNumber  String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @default(now())
+  isActive         Boolean  @default(true)
+  lastStepId       String
+  variables        Json     @default("{}")
+  lastStepAttempts Int      @default(0)
+
+  @@index([flowId])
   @@map("bot_flow_sessions")
 }
